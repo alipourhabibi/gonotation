@@ -13,6 +13,7 @@ var restrictive = false
 
 // const reMATCHER = "/(\\[(\\d+|\\*|\".*\"|'.*')\\]|[a-z$_][a-z$_\\d]*|\\*)/gi;"
 const reMATCHER = `(?mi)(!?)(\[(\d+|\*|".*"|'.*')\]|[a-z$_][a-z$_\d]*|\*)`
+const REMATCHER = reMATCHER
 
 // const VAR = "/^[a-z$_][a-z$_\\d]*$/i"
 const VAR = `(?i)^[a-z$_][a-z$_\\d]*$`
@@ -26,7 +27,8 @@ const OBJECT_BRACKETS = "/^\\[(?:'(.*)'|\"(.*)\"|`(.*)`)\\]$/"
 const WILDCARD = `^(\[\*\]|\*)$`
 
 // matches `*` and `[*]` if outside of quotes.
-const WILDCARDS = "/(\\*|\\[\\*\\])(?=(?:[^\"]|\"[^\"]*\")*$)(?=(?:[^']|'[^']*')*$)/"
+// const WILDCARDS = "/(\\*|\\[\\*\\])(?=(?:[^\"]|\"[^\"]*\")*$)(?=(?:[^']|'[^']*')*$)/"
+const WILDCARDS = `(\*|\[\*\])(?=(?:[^"]|"[^"]*")*$)(?=(?:[^']|'[^']*')*$)`
 
 // matches trailing wildcards at the end of a non-negated glob.
 // e.g. `x.y.*[*].*` » $1 = `x.y`, $2 = `.*[*].*`
@@ -46,6 +48,10 @@ var re []string = []string{
 	WILDCARDS,
 	NON_NEG_WILDCARD_TRAIL,
 	NEGATE_ALL,
+}
+
+func Covers(a, b GlobInspect, match bool) bool {
+	return covers(a, b, match)
 }
 
 func covers(a, b GlobInspect, match bool) bool {
@@ -106,6 +112,29 @@ func coversNote(a, b string) bool {
 	g := normalizeNote(a) == normalizeNote(b) // normalize both and check for equality
 	return g
 }
+func NormalizeNote(note string) string {
+	r, _ := regexp.MatchString(VAR, note)
+	if r {
+		return note
+	}
+
+	m := regexp.MustCompile(ARRAY_NOTE).FindStringSubmatch(note)
+	if len(m) > 1 {
+		d, err := strconv.Atoi(m[1])
+		if err != nil {
+			return ""
+		}
+		return string(d)
+	}
+
+	m = regexp.MustCompile(OBJECT_BRACKETS).FindStringSubmatch(note)
+	if len(m) > 0 {
+		return m[1] + m[2] + m[3]
+	}
+
+	return ""
+}
+
 func normalizeNote(note string) bool {
 	r, _ := regexp.MatchString(VAR, note)
 	if r {
@@ -171,10 +200,20 @@ func NewGlob(glob string) Glob {
 	}
 }
 
+func NewInspect(glob string) GlobInspect {
+	ins := inspect(Glob{glob: glob})
+	// notes := split(ins.AbsGlob, false)
+	return ins
+}
+
 type Glob struct {
 	Notes     []string
 	isNegated bool
 	glob      string
+}
+
+func (g Glob) GetGlob() string {
+	return g.glob
 }
 
 func removeTrailingWildcards(glob Glob) Glob {
