@@ -511,6 +511,17 @@ func Normalize(globList []Glob, restrictive bool) []string {
 	for i, j := 0, len(list)-1; i < j; i, j = i+1, j-1 {
 		list[i], list[j] = list[j], list[i]
 	}
+	processed := map[string]struct{}{}
+	w := 0
+	for _, s := range list {
+		if _, exists := processed[s.Glob.glob]; !exists {
+			// If this city has not been seen yet, add it to the list
+			processed[s.Glob.glob] = struct{}{}
+			list[w] = s
+			w++
+		}
+	}
+	list = list[:w]
 	for indexA := len(list) - 1; indexA >= 0; indexA-- {
 		var duplicate bool
 		a := list[indexA]

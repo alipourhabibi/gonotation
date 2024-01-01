@@ -165,7 +165,10 @@ func split(notation string) ([]string, error) {
 }
 func last(notation string) string {
 	list, _ := split(notation)
-	return list[len(list)-1]
+	if len(list) != 0 {
+		return list[len(list)-1]
+	}
+	return ""
 }
 
 func parent(notation string) string {
