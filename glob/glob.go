@@ -224,6 +224,9 @@ func removeTrailingWildcards(glob Glob) Glob {
 }
 
 func split(glob Glob, normalize bool) []string {
+	if glob.glob == "" {
+		return []string{}
+	}
 	/*
 	   if (!Glob.isValid(glob)) {
 	       throw new NotationError(`${ERR_INVALID} '${glob}'`);
@@ -414,6 +417,9 @@ func inspect(glob Glob) GlobInspect {
 		}
 	*/
 
+	if g == "" {
+		return GlobInspect{}
+	}
 	isNegated := g[0] == '!'
 	if !isNegated {
 		glob = removeTrailingWildcards(glob)
