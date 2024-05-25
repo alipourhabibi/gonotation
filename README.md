@@ -1,17 +1,31 @@
 # GoNotation
-this repo is the implementation of the [notation](https://github.com/onury/notation) package in golang.
+This repo is used to filter the filed of an input with filter array.
 
 ## Example:
 ```go
-array := []glob.Glob{
-		glob.NewGlob("dog"),
-		glob.NewGlob("car"),
-		glob.NewGlob("!car.brand"),
-}
-notations := notation.New(`{ "car": { "brand": "Dodge", "model": "Charger" }, "dog": { "breed": "Akita" } }`)
-filtered, _ := notations.Filter(array, false)
-fmt.Println(filtered)
+	input := map[string]interface{}{
+		"name":         "John Doe",
+		"avatar":       "avatar.png",
+		"email":        "john@example.com",
+		"access":       map[string]interface{}{"owner": "admin", "clients": []string{"client1", "client2"}},
+		"organization": "Example Corp",
+	}
+
+	blacklistFilters := []string{"*", "!access", "!avatar", "access.clients"}
+	filteredWhitelist, err := notation.FilterMap(input, blacklistFilters)
+	if err != nil {
+        return err
+	}
 ```
-in the example above our globs are ["dog", "car", "!car.brand"] \
-they will be normalize with the glob package and then filtered with the notation package. \
-this repo uses [sjson](https://github.com/tidwall/sjson) and [gjson](https://github.com/tidwall/gjson) under the hood for json manipulation.
+
+The out put is as follow:
+```go
+	exptectedOutput := map[string]interface{}{
+		"name":         "John Doe",
+		"email":        "john@example.com",
+		"access":       map[string]interface{}{"clients": []string{"client1", "client2"}},
+		"organization": "Example Corp",
+	}
+```
+
+in the example above our globs are ["*", "!access", "!avatar", "access.clients"] \
