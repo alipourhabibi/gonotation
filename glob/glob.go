@@ -124,7 +124,7 @@ func NormalizeNote(note string) string {
 		if err != nil {
 			return ""
 		}
-		return string(d)
+		return fmt.Sprintf("%d", d)
 	}
 
 	m = regexp.MustCompile(OBJECT_BRACKETS).FindStringSubmatch(note)
