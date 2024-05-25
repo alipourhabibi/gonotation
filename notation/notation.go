@@ -1,179 +1,195 @@
 package notation
 
 import (
-	"fmt"
-	"regexp"
+	"encoding/json"
 	"strings"
-
-	"github.com/alipourhabibi/gonotation/glob"
-	"github.com/dlclark/regexp2"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
-var ERRInvalidRegex = fmt.Errorf("Invalid regex")
+type FilterType uint8
 
-type Notation struct {
-	source      string
-	isArray     bool
-	restrictive bool
+const (
+	Include FilterType = 0
+	Exclude FilterType = 1
+)
+
+// Filter represents a single filter rule.
+type Filter struct {
+	Type  FilterType // Include for whitelist, Exclude for blacklist
+	Field string     // the field name to include or exclude
 }
 
-func New(source string) Notation {
-	return Notation{
-		source: source,
-	}
-}
-
-func (n Notation) Filter(globList []glob.Glob, restrictive bool) (string, error) {
-	notation, err := n.filter(globList, restrictive)
-	return notation.source, err
-}
-
-func (n Notation) filter(globList []glob.Glob, restictive bool) (Notation, error) {
-	n.restrictive = restictive
-	globs := glob.Normalize(globList, restictive)
-	length := len(globs)
-	empty := "{}"
-	t := gjson.Parse(n.source)
-	if t.Type.String() == "array" {
-		n.isArray = true
-		empty = "[]"
-	}
-	m, err := regexp.MatchString(glob.NEGATE_ALL, globs[0])
-	if err != nil {
-		return Notation{}, ERRInvalidRegex
-	}
-	if length == 0 || (length == 1 && (globs[0] == "" || m)) {
-		n.source = empty
-	}
-	cloned := n.source
-	firstWildCard, err := regexp.MatchString(glob.WILDCARD, globs[0])
-	if length == 1 && firstWildCard {
-		n.source = cloned
-	}
-	filtered := Notation{}
-	if firstWildCard {
-		filtered = New(cloned)
-		if len(globs) >= 1 {
-
+// parseFilters parses a list of filter strings into a slice of Filter structs.
+func parseFilters(filters []string) []Filter {
+	var parsedFilters []Filter
+	for _, f := range filters {
+		if f == "*" {
+			parsedFilters = append(parsedFilters, Filter{Type: Include, Field: "*"})
+		} else if strings.HasPrefix(f, "!") {
+			parsedFilters = append(parsedFilters, Filter{Type: Exclude, Field: strings.TrimPrefix(f, "!")})
+		} else {
+			parsedFilters = append(parsedFilters, Filter{Type: Include, Field: f})
 		}
-	} else {
-		filtered = New(empty)
 	}
-	for i := 0; i < len(globs); i++ {
-		var normalized string
-		var emptyValue string
-		var eType string
-		globNotation := globs[i]
-		g := glob.NewInspect(globNotation)
-		if len(g.AbsGlob.GetGlob()) >= 2 && g.AbsGlob.GetGlob()[len(g.AbsGlob.GetGlob())-2:] == ".*" {
-			normalized = g.AbsGlob.GetGlob()[:len(g.AbsGlob.GetGlob())-2]
-			if g.IsNegated {
-				emptyValue = "{}"
-				eType = "object"
+	return parsedFilters
+}
+
+// applyFilters applies the parsed filters to the input map.
+func applyFilters(input map[string]interface{}, filters []Filter) map[string]interface{} {
+	includeAll := false
+	includeFilters := make(map[string]struct{})
+	excludeFilters := make(map[string]struct{})
+	includeSubFields := make(map[string][]string)
+	excludeSubFields := make(map[string][]string)
+
+	for _, filter := range filters {
+		if filter.Type == Include && filter.Field == "*" {
+			includeAll = true
+		} else if filter.Type == Include {
+			if strings.Contains(filter.Field, ".") {
+				parts := strings.Split(filter.Field, ".")
+				parentField := parts[0]
+				subField := strings.Join(parts[1:], ".")
+				includeSubFields[parentField] = append(includeSubFields[parentField], subField)
+			} else {
+				includeFilters[filter.Field] = struct{}{}
 			}
-		} else if len(g.AbsGlob.GetGlob()) >= 3 && g.AbsGlob.GetGlob()[len(g.AbsGlob.GetGlob())-3:] == "[*]" {
-			normalized = g.AbsGlob.GetGlob()[:len(g.AbsGlob.GetGlob())-3]
-			if g.IsNegated {
-				emptyValue = "[]"
-				eType = "array"
+		} else if filter.Type == Exclude {
+			if strings.Contains(filter.Field, ".") {
+				parts := strings.Split(filter.Field, ".")
+				parentField := parts[0]
+				subField := strings.Join(parts[1:], ".")
+				excludeSubFields[parentField] = append(excludeSubFields[parentField], subField)
+			} else {
+				excludeFilters[filter.Field] = struct{}{}
+			}
+		}
+	}
+
+	result := make(map[string]interface{})
+
+	// If there are include filters, use them as a whitelist
+	if len(includeFilters) > 0 || includeAll {
+		if includeAll {
+			for k, v := range input {
+				if _, ok := excludeFilters[k]; !ok {
+					result[k] = v
+				}
 			}
 		} else {
-			normalized = g.AbsGlob.GetGlob()
+			for field := range includeFilters {
+				copyField(result, input, field)
+			}
 		}
+	}
 
-		rg := regexp2.MustCompile(glob.WILDCARDS, 0)
-		m, err := rg.MatchString(normalized)
+	// Apply exclude filters
+	for field := range excludeFilters {
+		removeField(result, input, field)
+	}
+
+	// Handle nested includes within nested included fields
+	for field, subFields := range includeSubFields {
+		if val, ok := input[field]; ok {
+			if nestedMap, ok := val.(map[string]interface{}); ok {
+				if _, ok := result[field]; !ok {
+					result[field] = make(map[string]interface{})
+				}
+				nestedResult := filterNestedFields(nestedMap, subFields)
+				for subKey, subVal := range nestedResult {
+					result[field].(map[string]interface{})[subKey] = subVal
+				}
+			}
+		}
+	}
+
+	for field, subFields := range excludeSubFields {
+		if val, ok := input[field]; ok {
+			if nestedMap, ok := val.(map[string]interface{}); ok {
+				if resultField, ok := result[field].(map[string]any); ok {
+					for _, v := range subFields {
+						removeField(resultField, nestedMap, v)
+					}
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// copyField copies a field from src to dest, supporting nested fields using dot notation.
+func copyField(dest, src map[string]interface{}, field string) {
+	parts := strings.Split(field, ".")
+	if len(parts) == 1 {
+		if val, ok := src[parts[0]]; ok {
+			dest[parts[0]] = val
+		}
+	} else {
+		if val, ok := src[parts[0]]; ok {
+			if nestedMap, ok := val.(map[string]interface{}); ok {
+				if _, ok := dest[parts[0]]; !ok {
+					dest[parts[0]] = make(map[string]interface{})
+				}
+				copyField(dest[parts[0]].(map[string]interface{}), nestedMap, strings.Join(parts[1:], "."))
+			}
+		}
+	}
+}
+
+// removeField removes a field from the result map if exists in input, supporting nested fields using dot notation.
+func removeField(result, input map[string]interface{}, field string) {
+	parts := strings.Split(field, ".")
+	if len(parts) == 1 {
+		delete(result, parts[0])
+	} else {
+		if val, ok := input[parts[0]]; ok {
+			if nestedMap, ok := val.(map[string]interface{}); ok {
+				removeField(nestedMap, nestedMap, strings.Join(parts[1:], "."))
+				if len(nestedMap) == 0 {
+					delete(result, parts[0])
+				} else {
+					result[parts[0]] = nestedMap
+				}
+			}
+		}
+	}
+}
+
+// filterNestedFields applies include filters to nested maps.
+func filterNestedFields(input map[string]interface{}, fields []string) map[string]interface{} {
+	result := make(map[string]interface{})
+	for _, field := range fields {
+		copyField(result, input, field)
+	}
+	return result
+}
+
+// FilterMap applies the filter list to the input map and returns the filtered map.
+func FilterMap(input interface{}, filterList []string) (map[string]interface{}, error) {
+	filters := parseFilters(filterList)
+	inputMap := map[string]interface{}{}
+	switch i := input.(type) {
+	case map[string]interface{}:
+		inputMap = i
+	case string:
+		err := json.Unmarshal([]byte(i), &inputMap)
 		if err != nil {
-			return Notation{}, ERRInvalidRegex
+			return nil, err
 		}
-		if !m {
-			if g.IsNegated {
-				insRemove, err := sjson.Delete(filtered.source, normalized)
-				if err != nil {
-					return Notation{}, ERRInvalidRegex
-				}
-				filtered.source = insRemove
-				par := parent(insRemove)
-				if emptyValue != "" {
-					if insRemove == "undefined" || insRemove == "Null" {
-						// isValSet = false
-					}
-					not := gjson.Parse(par)
-					// setMode := "overwrite"
-					if not.Type.String() == "array" {
-						// setMode = "insert"
-					}
-					//filtered.source, err = sjson.Set(filtered.source, normalized, emptyValue)
-					filtered.source, err = sjson.Delete(filtered.source, normalized)
-					if err != nil {
-						return Notation{}, ERRInvalidRegex
-					}
-				}
-			} else {
-				insGet := gjson.Get(n.source, normalized)
-				filtered.source, err = sjson.Set(filtered.source, normalized, insGet.Value())
-				if err != nil {
-					return Notation{}, ERRInvalidRegex
-				}
-			}
+	case []byte:
+		err := json.Unmarshal(i, &inputMap)
+		if err != nil {
+			return nil, err
 		}
-		gsource := gjson.Parse(n.source)
-		gsource.ForEach(func(key, value gjson.Result) bool {
-			orig := glob.NewInspect(normalized)
-			originalIsCovered := glob.Covers(orig, glob.NewInspect(key.String()), false)
-			if !originalIsCovered {
-				return true
-			}
-			if n.restrictive && emptyValue != "" {
-				vType := gjson.Parse(value.String()).Type.String()
-				spl, err := split(key.String())
-				if err != nil {
-					return false
-				}
-				if vType != eType && len(spl) == len(g.Glob.Notes)-1 {
-					return false
-				}
-			}
-			res := gjson.Parse(n.source)
-			res.ForEach(func(k2, v2 gjson.Result) bool {
-				// m, err := regexp.MatchString(v2.String(), g.Glob.GetGlob())
-				m := glob.Covers(g, glob.NewInspect(k2.String()), false)
-				if err != nil {
-					return false
-				}
-				if m {
-					l, _ := split(v2.String())
-					levelLen := len(l)
-					if g.IsNegated && len(g.Glob.Notes) <= levelLen {
-						filtered.source, err = sjson.Delete(filtered.source, g.AbsGlob.GetGlob())
-						return false
-					}
-				}
-				return true
-			})
-			return true
-		})
+	default:
+		inputBytes, err := json.Marshal(i)
+		if err != nil {
+			return nil, err
+		}
+		err = json.Unmarshal(inputBytes, &inputMap)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return filtered, nil
-}
-
-func split(notation string) ([]string, error) {
-	reMatcher := regexp.MustCompile(glob.REMATCHER)
-	return reMatcher.FindAllString(notation, -1), nil
-}
-func last(notation string) string {
-	list, _ := split(notation)
-	if len(list) != 0 {
-		return list[len(list)-1]
-	}
-	return ""
-}
-
-func parent(notation string) string {
-	last := last(notation)
-	parent := notation[:len(notation)-len(last)]
-	parent = strings.TrimSuffix(parent, ".")
-	return parent
+	return applyFilters(inputMap, filters), nil
 }
