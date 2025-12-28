@@ -6,15 +6,15 @@ import (
 )
 
 func TestBlacklist(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"name":         "John Doe",
 		"avatar":       "avatar.png",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"owner": "admin", "clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"owner": "admin", "clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
-	exptectedOutput := map[string]interface{}{
+	exptectedOutput := map[string]any{
 		"name":         "John Doe",
 		"email":        "john@example.com",
 		"organization": "Example Corp",
@@ -32,15 +32,15 @@ func TestBlacklist(t *testing.T) {
 }
 
 func TestWhiteList(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"name":         "John Doe",
 		"avatar":       "avatar.png",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"owner": "admin", "clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"owner": "admin", "clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
-	exptectedOutput := map[string]interface{}{
+	exptectedOutput := map[string]any{
 		"name":   "John Doe",
 		"avatar": "avatar.png",
 	}
@@ -57,18 +57,18 @@ func TestWhiteList(t *testing.T) {
 }
 
 func TestNestedBlacklist(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"name":         "John Doe",
 		"avatar":       "avatar.png",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"owner": "admin", "clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"owner": "admin", "clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
-	exptectedOutput := map[string]interface{}{
+	exptectedOutput := map[string]any{
 		"name":         "John Doe",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
@@ -84,18 +84,18 @@ func TestNestedBlacklist(t *testing.T) {
 }
 
 func TestBlacklistNestedWhiltelist(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"name":         "John Doe",
 		"avatar":       "avatar.png",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"owner": "admin", "clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"owner": "admin", "clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
-	exptectedOutput := map[string]interface{}{
+	exptectedOutput := map[string]any{
 		"name":         "John Doe",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
@@ -111,18 +111,17 @@ func TestBlacklistNestedWhiltelist(t *testing.T) {
 }
 
 func TestBlacklistWholeField(t *testing.T) {
-	input := map[string]interface{}{
+	input := map[string]any{
 		"name":         "John Doe",
 		"avatar":       "avatar.png",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{"owner": "admin", "clients": []string{"client1", "client2"}},
+		"access":       map[string]any{"owner": "admin", "clients": []string{"client1", "client2"}},
 		"organization": "Example Corp",
 	}
 
-	exptectedOutput := map[string]interface{}{
+	exptectedOutput := map[string]any{
 		"name":         "John Doe",
 		"email":        "john@example.com",
-		"access":       map[string]interface{}{},
 		"organization": "Example Corp",
 	}
 
