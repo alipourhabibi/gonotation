@@ -82,38 +82,55 @@ func splitField(field string) (parent, sub string, isNested bool) {
 	return field[:idx], field[idx+1:], true
 }
 
+func cloneValue(v any) any {
+	if m, ok := v.(map[string]any); ok {
+		return cloneMap(m)
+	}
+	return v
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	result := make(map[string]any, len(input))
+	for k, v := range input {
+		result[k] = cloneValue(v)
+	}
+	return result
+}
+
 func applyFilters(input map[string]any, filters []Filter) map[string]any {
 	fs := buildFilterSet(filters)
 	result := make(map[string]any)
 
-	// Start with included fields
-	if fs.includeAll {
+	// A filter list containing only excludes implies "*": "!a" alone means
+	// "everything except a", matching the README's blacklist framing.
+	blacklistOnly := !fs.includeAll &&
+		len(fs.includes) == 0 && len(fs.nestedInclude) == 0 &&
+		(len(fs.excludes) > 0 || len(fs.nestedExclude) > 0)
+
+	if fs.includeAll || blacklistOnly {
 		for k, v := range input {
 			if !fs.excludes[k] {
-				result[k] = v
+				result[k] = cloneValue(v)
 			}
 		}
 	} else if len(fs.includes) > 0 {
 		for field := range fs.includes {
 			if v, ok := input[field]; ok {
-				result[field] = v
+				result[field] = cloneValue(v)
 			}
 		}
 	}
 
-	// Apply top-level excludes
 	for field := range fs.excludes {
 		delete(result, field)
 	}
 
-	// Handle nested includes
 	for parent, subFields := range fs.nestedInclude {
 		if val, ok := input[parent]; ok {
 			if nested, ok := val.(map[string]any); ok {
-				filtered := filterNested(nested, subFields, true)
+				filtered := filterNested(nested, subFields)
 				if len(filtered) > 0 {
 					if existing, exists := result[parent].(map[string]any); exists {
-						// Merge with existing
 						for k, v := range filtered {
 							existing[k] = v
 						}
@@ -125,7 +142,6 @@ func applyFilters(input map[string]any, filters []Filter) map[string]any {
 		}
 	}
 
-	// Handle nested excludes
 	for parent, subFields := range fs.nestedExclude {
 		if resultVal, ok := result[parent].(map[string]any); ok {
 			for _, subField := range subFields {
@@ -140,7 +156,7 @@ func applyFilters(input map[string]any, filters []Filter) map[string]any {
 	return result
 }
 
-func filterNested(input map[string]any, fields []string, includeMode bool) map[string]any {
+func filterNested(input map[string]any, fields []string) map[string]any {
 	result := make(map[string]any)
 
 	for _, field := range fields {
@@ -148,17 +164,29 @@ func filterNested(input map[string]any, fields []string, includeMode bool) map[s
 
 		if !isNested {
 			if v, ok := input[parent]; ok {
-				result[parent] = v
+				result[parent] = cloneValue(v)
+			}
+			continue
+		}
+
+		val, ok := input[parent]
+		if !ok {
+			continue
+		}
+		nested, ok := val.(map[string]any)
+		if !ok {
+			continue
+		}
+		subResult := filterNested(nested, []string{sub})
+		if len(subResult) == 0 {
+			continue
+		}
+		if existing, ok := result[parent].(map[string]any); ok {
+			for k, v := range subResult {
+				existing[k] = v
 			}
 		} else {
-			if val, ok := input[parent]; ok {
-				if nested, ok := val.(map[string]any); ok {
-					subResult := filterNested(nested, []string{sub}, includeMode)
-					if len(subResult) > 0 {
-						result[parent] = subResult
-					}
-				}
-			}
+			result[parent] = subResult
 		}
 	}
 
